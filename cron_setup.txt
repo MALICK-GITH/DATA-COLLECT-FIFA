@@ -1,0 +1,96 @@
+# Cron Job Setup Instructions
+
+## Option 1: System Cron Job (Linux/Mac)
+
+### Edit crontab
+```bash
+crontab -e
+```
+
+### Add the following line (run every 5 minutes)
+```
+*/5 * * * * cd /path/to/cron_job_match_saver && /usr/bin/python3 scraper.py >> match_saver.log 2>&1
+```
+
+### Or use the cron service (recommended for continuous running)
+```
+@reboot cd /path/to/cron_job_match_saver && /usr/bin/python3 cron_service.py >> match_saver.log 2>&1
+```
+
+## Option 2: Windows Task Scheduler
+
+### Create a new task:
+1. Open Task Scheduler
+2. Create Basic Task
+3. Name: "Match Saver"
+4. Trigger: Daily, repeat every 5 minutes
+5. Action: Start a program
+6. Program: python.exe
+7. Arguments: scraper.py
+8. Start in: C:\path\to\cron_job_match_saver
+
+## Option 3: Docker Cron
+
+### Create Dockerfile
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+
+CMD ["python", "cron_service.py"]
+```
+
+### Run with Docker
+```bash
+docker build -t match-saver .
+docker run -d --name match-saver -v $(pwd)/match_history.db:/app/match_history.db match-saver
+```
+
+## Option 4: Systemd Service (Linux)
+
+### Create service file
+```bash
+sudo nano /etc/systemd/system/match-saver.service
+```
+
+### Add the following:
+```ini
+[Unit]
+Description=Match Saver Service
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/cron_job_match_saver
+ExecStart=/usr/bin/python3 /path/to/cron_job_match_saver/cron_service.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and start the service
+```bash
+sudo systemctl enable match-saver
+sudo systemctl start match-saver
+sudo systemctl status match-saver
+```
+
+## Monitoring
+
+### Check logs
+```bash
+tail -f match_saver.log
+```
+
+### Check database stats
+```bash
+python -c "from database import DatabaseManager; db = DatabaseManager(); print(db.get_match_stats())"
+```

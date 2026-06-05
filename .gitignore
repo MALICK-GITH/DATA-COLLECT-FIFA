@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+match_history.db
+match_saver.log
