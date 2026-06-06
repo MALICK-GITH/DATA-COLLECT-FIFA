@@ -209,7 +209,7 @@ class DatabaseManager:
     
     def _upsert_finished_match_dataset(self, session, match_data):
         if match_data.get('status') != 'FINISHED':
-            return
+            return {'action': 'skipped', 'id': None}
         
         dataset_payload = {
             'match_id': str(match_data['event_id']),
@@ -235,19 +235,31 @@ class DatabaseManager:
             existing_row.source = dataset_payload['source']
             existing_row.raw_json = dataset_payload['raw_json']
             existing_row.updated_at = datetime.utcnow()
-            return existing_row.id
+            return {'action': 'updated', 'id': existing_row.id}
         
         dataset_row = FinishedMatchDataset(**dataset_payload)
         session.add(dataset_row)
         session.flush()
-        return dataset_row.id
+        return {'action': 'inserted', 'id': dataset_row.id}
     
     def save_finished_match_dataset(self, match_data):
         session = self.get_session()
         try:
-            dataset_id = self._upsert_finished_match_dataset(session, match_data)
+            result = self._upsert_finished_match_dataset(session, match_data)
             session.commit()
-            return dataset_id
+            return result
+        except Exception as error:
+            session.rollback()
+            raise error
+        finally:
+            session.close()
+    
+    def delete_match_from_dataset(self, match_id):
+        session = self.get_session()
+        try:
+            deleted_count = session.query(FinishedMatchDataset).filter_by(match_id=str(match_id)).delete()
+            session.commit()
+            return deleted_count
         except Exception as error:
             session.rollback()
             raise error
@@ -290,7 +302,7 @@ class DatabaseManager:
                 'total': total_matches,
                 'finished': finished_matches,
                 'cancelled': cancelled_matches,
-                'other': total_matches - finished_matches - cancelled_matches,
+                'other': max(total_matches - finished_matches - cancelled_matches, 0),
                 'finished_matches_dataset': dataset_finished_matches
             }
         finally:

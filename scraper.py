@@ -1,5 +1,6 @@
 import requests
 import logging
+import time
 from datetime import datetime
 from typing import List, Dict, Any
 from config import Config
@@ -34,29 +35,35 @@ class MatchScraper:
             if value is not None:
                 params[key] = value
         
-        try:
-            logger.info(f"Fetching matches with params: {params}")
-            response = requests.get(
-                self.api_url,
-                params=params,
-                headers=Config.get_api_headers(),
-                timeout=Config.API_TIMEOUT
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            if isinstance(data, dict) and data.get('Success'):
-                logger.info(f"Successfully fetched {len(data.get('Value', []))} matches")
-                return data
-            else:
+        max_attempts = max(Config.API_RETRY_COUNT, 1)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info(f"Fetching matches with params: {params} (attempt {attempt}/{max_attempts})")
+                response = requests.get(
+                    self.api_url,
+                    params=params,
+                    headers=Config.get_api_headers(),
+                    timeout=Config.API_TIMEOUT
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                if isinstance(data, dict) and data.get('Success'):
+                    logger.info(f"Successfully fetched {len(data.get('Value', []))} matches")
+                    return data
+                
                 logger.error(f"API returned error: {data.get('Error') if isinstance(data, dict) else 'Invalid JSON structure'}")
-                return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching matches: {e}")
-            return None
-        except ValueError as e:
-            logger.error(f"Invalid JSON response: {e}")
-            return None
+            except requests.exceptions.RequestException as error:
+                logger.error(f"Error fetching matches: {error}")
+            except ValueError as error:
+                logger.error(f"Invalid JSON response: {error}")
+            
+            if attempt < max_attempts:
+                sleep_seconds = Config.API_RETRY_BACKOFF_SECONDS * attempt
+                logger.info(f"Retrying API call in {sleep_seconds} second(s)")
+                time.sleep(sleep_seconds)
+        
+        return None
     
     def parse_status(self, gs: int, status_text: str) -> str:
         """Parse status code to human-readable status"""
@@ -173,19 +180,33 @@ class MatchScraper:
             'additional_odds': additional_odds
         }
     
-    def save_finished_matches(self, matches: List[Dict[str, Any]]) -> int:
+    def save_finished_matches(self, matches: List[Dict[str, Any]]) -> Dict[str, int]:
         """Save only finished matches to database"""
-        saved_count = 0
+        summary = {
+            'finished_seen': 0,
+            'inserted': 0,
+            'updated': 0,
+            'skipped': 0,
+            'errors': 0
+        }
         for match in matches:
             parsed = self.parse_match(match)
             if parsed['status'] == 'FINISHED':
+                summary['finished_seen'] += 1
                 try:
-                    self.db.save_finished_match_dataset(parsed)
-                    saved_count += 1
-                    logger.info(f"Saved finished match: {parsed['home_team_name']} vs {parsed['away_team_name']} ({parsed['home_score']}-{parsed['away_score']})")
+                    result = self.db.save_finished_match_dataset(parsed)
+                    action = result.get('action', 'skipped')
+                    if action in summary:
+                        summary[action] += 1
+                    logger.info(
+                        f"Saved finished match [{action}]: "
+                        f"{parsed['home_team_name']} vs {parsed['away_team_name']} "
+                        f"({parsed['home_score']}-{parsed['away_score']})"
+                    )
                 except Exception as e:
+                    summary['errors'] += 1
                     logger.error(f"Error saving match: {e}")
-        return saved_count
+        return summary
     
     def save_all_matches(self, matches: List[Dict[str, Any]]) -> int:
         """Save all matches to database"""
@@ -215,8 +236,8 @@ class MatchScraper:
         
         # Save matches
         if save_finished_only:
-            saved_count = self.save_finished_matches(matches)
-            logger.info(f"Saved {saved_count} finished matches")
+            save_summary = self.save_finished_matches(matches)
+            logger.info(f"Finished matches summary: {save_summary}")
         else:
             saved_count = self.save_all_matches(matches)
             logger.info(f"Saved {saved_count} matches")
@@ -226,6 +247,13 @@ class MatchScraper:
         logger.info(f"Database stats: {stats}")
         
         logger.info("Match scraper completed")
+        return {
+            'fetched_matches': len(matches),
+            'save_summary': save_summary if save_finished_only else {
+                'saved_all_matches': saved_count
+            },
+            'stats': stats
+        }
 
 def main():
     """Main entry point"""

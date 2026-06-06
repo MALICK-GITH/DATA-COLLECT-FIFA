@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import logging
+import threading
 from datetime import datetime
 from scraper import MatchScraper
 from database import DatabaseManager
@@ -22,6 +23,7 @@ app = Flask(__name__)
 scraper = MatchScraper()
 db = DatabaseManager()
 db.create_tables()
+trigger_lock = threading.Lock()
 
 def is_authorized():
     if not Config.WEBHOOK_TOKEN:
@@ -70,14 +72,22 @@ def trigger():
             'message': 'Unauthorized'
         }), 401
     
+    if not trigger_lock.acquire(blocking=False):
+        logger.warning("Webhook rejected: another execution is already running")
+        return jsonify({
+            'success': False,
+            'message': 'Another scraping job is already running'
+        }), 409
+    
     try:
         # Run the scraper
-        scraper.run(save_finished_only=True)
+        result = scraper.run(save_finished_only=True)
         
         # Get database stats
         stats = db.get_match_stats()
         
         logger.info(f"Webhook completed successfully")
+        logger.info(f"Trigger result: {result}")
         logger.info(f"Database stats: {stats}")
         logger.info("=" * 60)
         
@@ -85,6 +95,7 @@ def trigger():
             'success': True,
             'message': 'Match scraping completed',
             'timestamp': datetime.now().isoformat(),
+            'result': result,
             'stats': stats
         }), 200
         
@@ -97,6 +108,8 @@ def trigger():
             'message': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+    finally:
+        trigger_lock.release()
 
 @app.route('/stats', methods=['GET'])
 def stats():

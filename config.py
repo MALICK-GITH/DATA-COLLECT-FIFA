@@ -8,6 +8,8 @@ class Config:
     API_BASE_URL = os.getenv("API_BASE_URL", "https://888starz.bet/service-api/LiveFeed")
     API_ENDPOINT = os.getenv("API_ENDPOINT", "Get1x2_VZip")
     API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
+    API_RETRY_COUNT = int(os.getenv("API_RETRY_COUNT", "3"))
+    API_RETRY_BACKOFF_SECONDS = float(os.getenv("API_RETRY_BACKOFF_SECONDS", "2"))
     API_USER_AGENT = os.getenv("API_USER_AGENT", "match-saver/1.0")
     API_ACCEPT_ENCODING = os.getenv("API_ACCEPT_ENCODING", "gzip, deflate")
     
