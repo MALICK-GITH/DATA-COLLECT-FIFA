@@ -17,6 +17,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def normalize_text(value: str = "") -> str:
+    return (
+        str(value or "")
+        .lower()
+        .replace("é", "e")
+        .replace("è", "e")
+        .replace("ê", "e")
+        .replace("à", "a")
+        .replace("ù", "u")
+        .replace("î", "i")
+        .replace("ï", "i")
+        .replace("ô", "o")
+        .replace("ç", "c")
+        .strip()
+    )
+
 class MatchScraper:
     def __init__(self):
         self.db = DatabaseManager()
@@ -65,13 +81,27 @@ class MatchScraper:
         
         return None
     
-    def parse_status(self, gs: int, status_text: str) -> str:
+    def parse_status(self, gs: int, status_text: str, score_context: Dict[str, Any] | None = None) -> str:
         """Parse status code to human-readable status"""
+        score_context = score_context or {}
+        normalized_status = normalize_text(status_text)
+        normalized_sls = normalize_text(score_context.get('SLS', ''))
+        normalized_cps = normalize_text(score_context.get('CPS', ''))
+        normalized_info = normalize_text(score_context.get('I', ''))
+        
+        if (
+            gs == 3 or
+            'termine' in normalized_status or
+            'termine' in normalized_sls or
+            'termine' in normalized_cps or
+            'termine' in normalized_info
+        ):
+            return 'FINISHED'
+        
         status_map = {
             0: 'NOT_STARTED',
             1: 'LIVE',
             2: 'HALFTIME',
-            3: 'FINISHED',
             4: 'CANCELLED',
             5: 'POSTPONED',
             6: 'INTERRUPTED',
@@ -90,7 +120,7 @@ class MatchScraper:
         away_score = final_score.get('S2') if final_score else None
         
         # Parse status
-        status = self.parse_status(gs, score_context.get('I', ''))
+        status = self.parse_status(gs, score_context.get('I', ''), score_context)
         
         # Parse timing
         start_time = None
