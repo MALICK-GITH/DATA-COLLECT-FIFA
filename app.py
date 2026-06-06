@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 import logging
 import threading
+import csv
+import io
 from datetime import datetime
 from scraper import MatchScraper
 from database import DatabaseManager
@@ -127,6 +129,75 @@ def stats():
             'success': False,
             'message': str(e)
         }), 500
+
+@app.route('/export', methods=['GET'])
+def export_dataset():
+    """Download finished matches dataset as CSV or JSON"""
+    if not is_authorized():
+        logger.warning("Unauthorized export request")
+        return jsonify({
+            'success': False,
+            'message': 'Unauthorized'
+        }), 401
+    
+    export_format = (request.args.get('format') or 'csv').lower()
+    limit = request.args.get('limit', type=int)
+    rows = db.get_finished_match_dataset_rows(limit=limit)
+    
+    serialized_rows = [
+        {
+            'id': row.id,
+            'match_id': row.match_id,
+            'team_home': row.team_home,
+            'team_away': row.team_away,
+            'league': row.league,
+            'score_home': row.score_home,
+            'score_away': row.score_away,
+            'finished_at': row.finished_at.isoformat() if row.finished_at else None,
+            'source': row.source,
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+            'updated_at': row.updated_at.isoformat() if row.updated_at else None
+        }
+        for row in rows
+    ]
+    
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    
+    if export_format == 'json':
+        return jsonify({
+            'success': True,
+            'count': len(serialized_rows),
+            'exported_at': datetime.utcnow().isoformat(),
+            'rows': serialized_rows
+        }), 200
+    
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            'id',
+            'match_id',
+            'team_home',
+            'team_away',
+            'league',
+            'score_home',
+            'score_away',
+            'finished_at',
+            'source',
+            'created_at',
+            'updated_at'
+        ]
+    )
+    writer.writeheader()
+    writer.writerows(serialized_rows)
+    
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename=finished_matches_dataset_{timestamp}.csv'
+        }
+    )
 
 @app.route('/health', methods=['GET'])
 def health():

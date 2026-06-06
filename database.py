@@ -284,6 +284,16 @@ class DatabaseManager:
         finally:
             session.close()
     
+    def get_finished_match_dataset_rows(self, limit=None):
+        session = self.get_session()
+        try:
+            query = session.query(FinishedMatchDataset).order_by(FinishedMatchDataset.finished_at.desc(), FinishedMatchDataset.id.desc())
+            if limit:
+                query = query.limit(limit)
+            return query.all()
+        finally:
+            session.close()
+    
     def get_match_stats(self):
         session = self.get_session()
         try:
