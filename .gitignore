@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 match_history.db
 match_saver.log
+RUNBOOK_PRIVATE.md
