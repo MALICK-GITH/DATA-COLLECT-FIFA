@@ -6,10 +6,10 @@ load_dotenv()
 
 class Config:
     # API Configuration
-    API_BASE_URL = os.getenv("API_BASE_URL", "https://888starz.bet/service-api/LiveFeed")
+    API_BASE_URL = os.getenv("API_BASE_URL", "https://livefeedsht-vmp.onrender.com")
     API_FALLBACK_BASE_URL = os.getenv("API_FALLBACK_BASE_URL", "").strip()
     API_FALLBACK_URL = os.getenv("API_FALLBACK_URL", "").strip()
-    API_ENDPOINT = os.getenv("API_ENDPOINT", "Get1x2_VZip")
+    API_ENDPOINT = os.getenv("API_ENDPOINT", "live-feed")
     API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
     API_RETRY_COUNT = int(os.getenv("API_RETRY_COUNT", "3"))
     API_RETRY_BACKOFF_SECONDS = float(os.getenv("API_RETRY_BACKOFF_SECONDS", "2"))
@@ -44,6 +44,7 @@ class Config:
     PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "90000"))
     PLAYWRIGHT_PRIMARY_PAGE_URL = os.getenv("PLAYWRIGHT_PRIMARY_PAGE_URL", "https://888starz.bet/")
     PLAYWRIGHT_FALLBACK_PAGE_URL = os.getenv("PLAYWRIGHT_FALLBACK_PAGE_URL", "https://1xbet.com/")
+    API_USE_DEFAULT_PARAMS = os.getenv("API_USE_DEFAULT_PARAMS", "false").lower() == "true"
     
     # Default parameters
     DEFAULT_SPORTS = int(os.getenv("API_SPORTS", "85"))  # FIFA
@@ -188,6 +189,9 @@ class Config:
     
     @classmethod
     def get_api_params(cls):
+        if not cls.API_USE_DEFAULT_PARAMS:
+            return {}
+
         params = {
             "sports": cls.DEFAULT_SPORTS,
             "count": cls.DEFAULT_COUNT,

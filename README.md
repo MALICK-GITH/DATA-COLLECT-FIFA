@@ -1,10 +1,10 @@
 # 🏆 Match Saver - Cron Job Service
 
-Service automatique pour sauvegarder les matchs terminés de l'API 888starz.bet dans une base de données.
+Service automatique pour sauvegarder les matchs terminés du live feed dans une base de données.
 
 ## 📋 Fonctionnalités
 
-- ✅ Récupération automatique des matchs depuis l'API 888starz.bet
+- ✅ Récupération automatique des matchs depuis le nouvel endpoint live feed
 - ✅ Filtrage des matchs terminés (status FINISHED)
 - ✅ Sauvegarde dans une base de données (SQLite ou PostgreSQL)
 - ✅ Conservation des cotes et scores finaux

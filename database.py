@@ -219,7 +219,7 @@ class DatabaseManager:
             'score_home': match_data.get('home_score') if match_data.get('home_score') is not None else 0,
             'score_away': match_data.get('away_score') if match_data.get('away_score') is not None else 0,
             'finished_at': match_data.get('finish_time') or match_data.get('last_update') or match_data.get('start_time'),
-            'source': '888starz',
+            'source': 'livefeedsht-vmp',
             'raw_json': match_data.get('raw_data')
         }
         
