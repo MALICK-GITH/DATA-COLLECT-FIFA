@@ -1,8 +1,6 @@
 import requests
 import logging
 import time
-import json
-from urllib.parse import urlencode, urlparse
 from datetime import datetime
 from typing import List, Dict, Any
 from config import Config
@@ -38,179 +36,49 @@ def normalize_text(value: str = "") -> str:
 class MatchScraper:
     def __init__(self):
         self.db = DatabaseManager()
-        self.api_targets = Config.get_api_targets()
+        self.api_url = Config.get_api_url()
 
-    def extract_matches_payload(self, data: Any) -> Dict[str, Any] | None:
-        """Normalize supported API response envelopes."""
-        if not isinstance(data, dict):
-            logger.error("Unsupported API response type: expected object")
-            return None
-
-        if data.get('Success') and isinstance(data.get('Value'), list):
-            return data
-
-        if isinstance(data.get('Value'), list):
-            return {
-                'Success': True,
-                'Value': data.get('Value', []),
-                'Meta': data
-            }
-
-        matches = (
-            data.get('matches')
-            or data.get('events')
-            or data.get('data')
-        )
-        if isinstance(matches, list):
-            return {
-                'Success': True,
-                'Value': matches,
-                'Meta': data
-            }
-
-        return None
-
-    def fetch_matches_via_playwright(self, api_url: str, params: Dict[str, Any], headers: Dict[str, str], page_url: str):
-        """Fetch matches with a real browser session."""
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError as error:
-            logger.error(f"Playwright is not installed: {error}")
-            return None
-
-        query_url = f"{api_url}?{urlencode(params, doseq=True)}"
-        parsed_page = urlparse(page_url)
-
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=Config.PLAYWRIGHT_HEADLESS)
-            context = browser.new_context(
-                user_agent=headers.get("User-Agent"),
-                locale="fr-FR"
-            )
-            page = context.new_page()
-            page.set_default_timeout(Config.PLAYWRIGHT_TIMEOUT_MS)
-
-            cookie_header = headers.get("Cookie")
-            if cookie_header and parsed_page.hostname:
-                browser_cookies = []
-                for chunk in cookie_header.split(";"):
-                    if "=" not in chunk:
-                        continue
-                    name, value = chunk.split("=", 1)
-                    browser_cookies.append({
-                        "name": name.strip(),
-                        "value": value.strip(),
-                        "domain": parsed_page.hostname,
-                        "path": "/",
-                    })
-                if browser_cookies:
-                    context.add_cookies(browser_cookies)
-
-            try:
-                page.goto(page_url, wait_until="domcontentloaded")
-                response = page.evaluate(
-                    """async ({ url, headers }) => {
-                        const response = await fetch(url, {
-                            method: 'GET',
-                            headers,
-                            credentials: 'include'
-                        });
-                        const text = await response.text();
-                        return {
-                            ok: response.ok,
-                            status: response.status,
-                            contentType: response.headers.get('content-type'),
-                            text
-                        };
-                    }""",
-                    {
-                        "url": query_url,
-                        "headers": {
-                            key: value
-                            for key, value in headers.items()
-                            if key.lower() not in {"cookie", "accept-encoding"}
-                        }
-                    }
-                )
-            finally:
-                context.close()
-                browser.close()
-
-        if not response.get("ok"):
-            logger.error(
-                f"Playwright fetch failed for {api_url}: "
-                f"status={response.get('status')} content_type={response.get('contentType')}"
-            )
-            return None
-
-        try:
-            return self.extract_matches_payload(json.loads(response.get("text", "")))
-        except ValueError as error:
-            logger.error(f"Playwright returned non-JSON payload for {api_url}: {error}")
-            return None
-        
     def fetch_matches(self, sports=None, count=None, lng=None, mode=None) -> Dict[str, Any]:
         """Fetch matches from the API"""
+        params = Config.get_api_params()
         overrides = {
             'sports': sports,
             'count': count,
             'lng': lng,
             'mode': mode
         }
+        for key, value in overrides.items():
+            if value is not None:
+                params[key] = value
+
         max_attempts = max(Config.API_RETRY_COUNT, 1)
-        total_urls = len(self.api_targets)
-        for url_index, target in enumerate(self.api_targets, start=1):
-            api_url = target["url"]
-            params = dict(target["params"])
-            headers = target.get("headers") or Config.get_api_headers()
-            for key, value in overrides.items():
-                if value is not None:
-                    params[key] = value
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info(f"Fetching matches with params: {params} (attempt {attempt}/{max_attempts})")
+                response = requests.get(
+                    self.api_url,
+                    params=params,
+                    headers=Config.get_api_headers(),
+                    timeout=Config.API_TIMEOUT
+                )
+                response.raise_for_status()
+                data = response.json()
 
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    logger.info(
-                        f"Fetching matches from {api_url} with params: {params} "
-                        f"(source {url_index}/{total_urls}, attempt {attempt}/{max_attempts})"
-                    )
-                    if Config.USE_PLAYWRIGHT_FETCH:
-                        page_url = (
-                            Config.get_api_browser_page_url()
-                            if url_index == 1
-                            else Config.get_fallback_browser_page_url()
-                        )
-                        normalized_data = self.fetch_matches_via_playwright(api_url, params, headers, page_url)
-                    else:
-                        response = requests.get(
-                            api_url,
-                            params=params,
-                            headers=headers,
-                            timeout=Config.API_TIMEOUT
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        normalized_data = self.extract_matches_payload(data)
+                if isinstance(data, dict) and data.get('Success'):
+                    logger.info(f"Successfully fetched {len(data.get('Value', []))} matches")
+                    return data
 
-                    if normalized_data:
-                        logger.info(
-                            f"Successfully fetched {len(normalized_data.get('Value', []))} matches from {api_url}"
-                        )
-                        return normalized_data
+                logger.error(f"API returned error: {data.get('Error') if isinstance(data, dict) else 'Invalid JSON structure'}")
+            except requests.exceptions.RequestException as error:
+                logger.error(f"Error fetching matches: {error}")
+            except ValueError as error:
+                logger.error(f"Invalid JSON response: {error}")
 
-                    logger.error(f"API returned unsupported payload from {api_url}")
-                except requests.exceptions.RequestException as error:
-                    logger.error(f"Error fetching matches from {api_url}: {error}")
-                except ValueError as error:
-                    logger.error(f"Invalid JSON response from {api_url}: {error}")
-                
-                if attempt < max_attempts:
-                    sleep_seconds = Config.API_RETRY_BACKOFF_SECONDS * attempt
-                    logger.info(f"Retrying API call in {sleep_seconds} second(s)")
-                    time.sleep(sleep_seconds)
+            if attempt < max_attempts:
+                sleep_seconds = Config.API_RETRY_BACKOFF_SECONDS * attempt
+                logger.info(f"Retrying API call in {sleep_seconds} second(s)")
+                time.sleep(sleep_seconds)
 
-            if url_index < total_urls:
-                logger.warning(f"Switching to fallback API: {self.api_targets[url_index]['url']}")
-        
         return None
     
     def parse_status(self, gs: int, status_text: str, score_context: Dict[str, Any] | None = None) -> str:
